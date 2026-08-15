@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+checkpoints/
+checkpoints_light/
+outputs/
+.DS_Store
+*.log
