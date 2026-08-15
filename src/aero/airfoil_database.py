@@ -1,42 +1,60 @@
+
 import numpy as np
 from typing import Tuple, Optional
 
 class AirfoilDatabase:
     def __init__(self, csv_path: Optional[str] = None):
+        self.use_aerodynamics = False
         if csv_path is not None:
             self._load_from_csv(csv_path)
         else:
-            self._generate_mock_data()
+            # استفاده از کتابخانه aerodynamics
+            try:
+                from aerodynamics import Airfoil
+                self.airfoil = Airfoil('naca4412')
+                self.use_aerodynamics = True
+                print("✅ Using aerodynamics library for NACA 4412")
+            except ImportError:
+                print("⚠️ aerodynamics not available, using mock data")
+                self._generate_mock_data()
+    
+    def get_coeffs(self, alpha: float, Re: float) -> Tuple[float, float]:
+        if self.use_aerodynamics:
+            try:
+                # aerodynamics library expects alpha in degrees and returns (cl, cd)
+                cl, cd = self.airfoil.cl_cd(alpha, Re)
+                return float(cl), float(cd)
+            except Exception as e:
+                print(f"⚠️ aerodynamics failed: {e}, falling back to mock")
+                return self._interpolate_mock(alpha, Re)
+        return self._interpolate_mock(alpha, Re)
+    
+    def _interpolate_mock(self, alpha, Re):
+        """Improved mock data for fallback"""
+        # CL: linear with stall at 15 degrees
+        cl = 0.11 * alpha + 0.35
+        if alpha > 12:
+            cl = cl * (1 - 0.05 * (alpha - 12))
+        cl = np.clip(cl, -0.5, 1.5)
+        # CD: parabolic with minimum at zero lift
+        cd = 0.008 + 0.0001 * (alpha + 1)**2
+        cd = np.clip(cd, 0.006, 0.035)
+        return cl, cd
     
     def _generate_mock_data(self):
-        # داده‌های بهبودیافته برای NACA 4412
         self.Re_values = np.array([300000, 500000, 1000000])
         self.alpha_values = np.linspace(-10, 20, 30)
-        
         self.cl_data = {}
         self.cd_data = {}
-        
         for Re in self.Re_values:
-            alpha = self.alpha_values
-            # CL: خطی با شیب مناسب در ناحیه خطی
-            cl = 0.1 * alpha + 0.4
-            
-            # استال در حدود 14 درجه (با کاهش تدریجی)
-            stall_start = 12
-            stall_end = 18
-            for i, a in enumerate(alpha):
-                if a > stall_start:
-                    factor = 1.0 - (a - stall_start) / (stall_end - stall_start) * 0.5
-                    cl[i] = cl[i] * max(factor, 0.5)
-            
-            cl = np.clip(cl, -0.5, 1.6)
-            
-            # CD: سهمی با مینیمم در زاویه صفر
-            cd = 0.008 + 0.0001 * (alpha + 1)**2
-            cd = np.clip(cd, 0.005, 0.040)
-            
-            self.cl_data[Re] = cl
-            self.cd_data[Re] = cd
+            cl_list = []
+            cd_list = []
+            for alpha in self.alpha_values:
+                cl, cd = self._interpolate_mock(alpha, Re)
+                cl_list.append(cl)
+                cd_list.append(cd)
+            self.cl_data[Re] = np.array(cl_list)
+            self.cd_data[Re] = np.array(cd_list)
     
     def _load_from_csv(self, csv_path: str):
         data = np.loadtxt(csv_path, delimiter=',', skiprows=1)
@@ -48,34 +66,4 @@ class AirfoilDatabase:
             mask = data[:, 1] == Re
             self.cl_data[Re] = data[mask, 2]
             self.cd_data[Re] = data[mask, 3]
-    
-    def get_coeffs(self, alpha: float, Re: float) -> Tuple[float, float]:
-        alpha = np.clip(alpha, self.alpha_values.min(), self.alpha_values.max())
-        Re = np.clip(Re, self.Re_values.min(), self.Re_values.max())
-        
-        Re_low = self.Re_values[self.Re_values <= Re]
-        Re_high = self.Re_values[self.Re_values >= Re]
-        
-        if len(Re_low) == 0:
-            Re_low = self.Re_values[0]
-            Re_high = self.Re_values[0]
-        elif len(Re_high) == 0:
-            Re_low = self.Re_values[-1]
-            Re_high = self.Re_values[-1]
-        else:
-            Re_low = Re_low[-1]
-            Re_high = Re_high[0]
-        
-        if Re_low == Re_high:
-            cl = np.interp(alpha, self.alpha_values, self.cl_data[Re_low])
-            cd = np.interp(alpha, self.alpha_values, self.cd_data[Re_low])
-        else:
-            cl_low = np.interp(alpha, self.alpha_values, self.cl_data[Re_low])
-            cl_high = np.interp(alpha, self.alpha_values, self.cl_data[Re_high])
-            cd_low = np.interp(alpha, self.alpha_values, self.cd_data[Re_low])
-            cd_high = np.interp(alpha, self.alpha_values, self.cd_data[Re_high])
-            weight = (Re - Re_low) / (Re_high - Re_low)
-            cl = cl_low + weight * (cl_high - cl_low)
-            cd = cd_low + weight * (cd_high - cd_low)
-        
-        return float(cl), float(cd)
+EOF
