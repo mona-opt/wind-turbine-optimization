@@ -1,48 +1,41 @@
-
 import numpy as np
-from typing import Tuple, Optional
+import pandas as pd
 
 class AirfoilDatabase:
-    def __init__(self, csv_path: Optional[str] = None):
-        if csv_path is not None:
-            self._load_from_csv(csv_path)
+    def __init__(self, csv_path=None):
+        if csv_path is None:
+            # داده‌های Mock برای تست (NACA 4412)
+            alphas = np.linspace(-5, 20, 10)
+            res = [300000, 500000, 1000000]
+            self.data = {}
+            for Re in res:
+                cl = 0.1 * alphas + 0.3  # رابطه خطی ساده
+                cd = 0.008 + 0.0001 * (alphas + 2)**2
+                self.data[Re] = {'alpha': alphas, 'cl': cl, 'cd': cd}
         else:
-            # بارگذاری داده‌های واقعی از فایل داخلی
-            try:
-                data_path = "data/naca4412_re500k.csv"
-                self._load_from_csv(data_path)
-                print(f"✅ Loaded real airfoil data from {data_path}")
-            except:
-                print("⚠️ Real data not found, using mock data")
-                self._generate_mock_data()
+            self.data = pd.read_csv(csv_path)
     
-    def get_coeffs(self, alpha: float, Re: float) -> Tuple[float, float]:
-        # فقط یک رینولدز برای سادگی
-        if hasattr(self, 'alpha_values') and hasattr(self, 'cl_data'):
-            # درون‌یابی با داده‌های واقعی
-            cl = np.interp(alpha, self.alpha_values, self.cl_data)
-            cd = np.interp(alpha, self.alpha_values, self.cd_data)
-            return float(cl), float(cd)
-        return self._interpolate_mock(alpha, Re)
-    
-    def _interpolate_mock(self, alpha, Re):
-        cl = 0.11 * alpha + 0.35
-        if alpha > 12:
-            cl = cl * (1 - 0.05 * (alpha - 12))
-        cl = np.clip(cl, -0.5, 1.5)
-        cd = 0.008 + 0.0001 * (alpha + 1)**2
-        cd = np.clip(cd, 0.006, 0.035)
+    def get_coeffs(self, alpha, Re):
+        """درون‌یابی دوبعدی برای یافتن cl و cd"""
+        # پیدا کردن نزدیک‌ترین Re
+        Re_list = sorted(self.data.keys())
+        Re_low = max([r for r in Re_list if r <= Re], default=Re_list[0])
+        Re_high = min([r for r in Re_list if r >= Re], default=Re_list[-1])
+        
+        if Re_low == Re_high:
+            Re_data = self.data[Re_low]
+            cl = np.interp(alpha, Re_data['alpha'], Re_data['cl'])
+            cd = np.interp(alpha, Re_data['alpha'], Re_data['cd'])
+        else:
+            # درون‌یابی خطی بین دو Re
+            low_data = self.data[Re_low]
+            high_data = self.data[Re_high]
+            cl_low = np.interp(alpha, low_data['alpha'], low_data['cl'])
+            cd_low = np.interp(alpha, low_data['alpha'], low_data['cd'])
+            cl_high = np.interp(alpha, high_data['alpha'], high_data['cl'])
+            cd_high = np.interp(alpha, high_data['alpha'], high_data['cd'])
+            weight = (Re - Re_low) / (Re_high - Re_low)
+            cl = cl_low + weight * (cl_high - cl_low)
+            cd = cd_low + weight * (cd_high - cd_low)
+        
         return cl, cd
-    
-    def _load_from_csv(self, csv_path: str):
-        data = np.loadtxt(csv_path, delimiter=',', skiprows=1)
-        self.alpha_values = data[:, 0]
-        self.Re_values = data[:, 1]
-        self.cl_data = data[:, 2]
-        self.cd_data = data[:, 3]
-    
-    def _generate_mock_data(self):
-        self.alpha_values = np.linspace(-10, 20, 30)
-        self.cl_data = np.array([self._interpolate_mock(a, 500000)[0] for a in self.alpha_values])
-        self.cd_data = np.array([self._interpolate_mock(a, 500000)[1] for a in self.alpha_values])
-
