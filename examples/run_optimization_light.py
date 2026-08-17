@@ -39,7 +39,7 @@ def main():
     
     # کاهش سرعت‌های باد برای تست سبک
     objective.wind_speeds = np.linspace(3, 25, 10)
-    # محاسبه وزن‌ها با فرمول مستقیم (بدون متد جداگانه)
+    # محاسبه وزن‌ها با فرمول مستقیم
     k, c = objective.weibull_k, objective.weibull_c
     pdf = (k/c) * (objective.wind_speeds/c)**(k-1) * np.exp(-(objective.wind_speeds/c)**k)
     objective.weights = pdf * (objective.wind_speeds[1] - objective.wind_speeds[0])
